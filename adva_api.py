@@ -2,8 +2,7 @@
 ADVA Ensemble Connector REST API client.
 
 API client with session-based HTTP transport and automatic retry.
-Data models are defined in :mod:`models` and re-exported here
-for backward compatibility.
+Data models are defined in :mod:`models`.
 """
 
 import logging
@@ -22,27 +21,7 @@ from requests.auth import HTTPBasicAuth
 
 import urn_data as ud
 
-# Re-export all models so existing ``from adva_api import VPort, Service``
-# continues to work without changes.
-from models import (                                        # noqa: F401
-    # utilities
-    is_valid_ip, response_format, get_short_list,
-    # serialisation base
-    Config, _Serialisable,
-    # interfaces
-    Interface, IpInterface, VPort,
-    GigabitEthernet, GigabitEthernet1, Aggregation,
-    AggregationMember,
-    # services
-    Service, ServicePort,
-    # VNF
-    VnfProfile, Vnf, VnfPort,
-    # firewall
-    InvalidPortNumber, InvalidState, InvalidDirection, InvalidProtocol,
-    FirewallPort, FirewallProfile,
-    # TACACS
-    TacacsServer, TacacsConfig,
-)
+from models import get_short_list, Interface, Service, Vnf
 
 urllib3.disable_warnings(InsecureRequestWarning)
 

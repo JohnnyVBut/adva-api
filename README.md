@@ -29,7 +29,8 @@ No other external dependencies required.
 
 ```python
 import logging
-from adva_api import API, VPort, GigabitEthernet, Service
+from adva_api import API
+from models import VPort, GigabitEthernet, Service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,18 +58,18 @@ api.configure_interface([
 
 ### adva_api.py
 
-Contains the `API` class and re-exports all models from `models.py` for backward compatibility. Any existing code using `from adva_api import VPort, Service` continues to work without changes.
+Contains the `API` class and HTTP transport layer.
+
+```python
+from adva_api import API
+```
 
 ### models.py
 
-Self-contained module with no HTTP dependencies. Can be imported independently for configuration building, testing, or serialisation without pulling in `requests`/`urllib3`.
+Self-contained module with no HTTP dependencies. Import models directly from here for configuration building, testing, or serialisation without pulling in `requests`/`urllib3`.
 
 ```python
-# Direct import (no HTTP deps)
-from models import VPort, Service, GigabitEthernet
-
-# Or through adva_api (includes HTTP)
-from adva_api import VPort, Service, GigabitEthernet
+from models import VPort, Service, GigabitEthernet, ServicePort
 ```
 
 ### urn_data.py
@@ -157,7 +158,7 @@ All interface methods accept a single interface or a list. A single item returns
 Creates or configures one or more interfaces. Decorated with `@_auto_config`.
 
 ```python
-from adva_api import VPort, GigabitEthernet, IpInterface
+from models import VPort, GigabitEthernet, IpInterface
 
 # Single
 api.configure_interface(VPort(name="vp-1", vlan_id=100))
@@ -397,7 +398,7 @@ ge = GigabitEthernet(
 )
 
 # GigabitEthernet1 is an alias
-from adva_api import GigabitEthernet1
+from models import GigabitEthernet1
 # GigabitEthernet1 is GigabitEthernet → True
 ```
 
@@ -737,7 +738,8 @@ from urn_data import _Endpoint, Method, _V1, _V3
 Each call is its own transaction — no manual lock/commit needed:
 
 ```python
-from adva_api import API, VPort, GigabitEthernet, Service
+from adva_api import API
+from models import VPort, GigabitEthernet, Service
 
 api = API(url="https://10.0.0.1", username="admin", password="admin")
 api.get_token()
@@ -786,7 +788,8 @@ api.config_commit()
 ### Firewall Configuration
 
 ```python
-from adva_api import API, FirewallPort, FirewallProfile
+from adva_api import API
+from models import FirewallPort, FirewallProfile
 
 api = API(url="https://10.0.0.1", username="admin", password="admin")
 api.get_token()
@@ -806,7 +809,8 @@ api.query("configure-firewall-profiles", payload=fw.get_config())
 ### VNF Deployment
 
 ```python
-from adva_api import API, VnfProfile
+from adva_api import API
+from models import VnfProfile
 
 api = API(url="https://10.0.0.1", username="admin", password="admin")
 api.get_token()
@@ -869,24 +873,3 @@ Log levels used:
 | `WARNING` | Token file write failure, config lock failure      |
 | `ERROR`   | Auth failure, unlock failure                       |
 
----
-
-## Migration from Original Code
-
-### What Changed
-
-| Change                           | Impact                                               |
-|----------------------------------|------------------------------------------------------|
-| `TacacsServer` raises on invalid IP | Add try/except around constructor                 |
-| `delete_service` returns list for multiple items | Check return type if processing results |
-| `retrying` dependency removed    | Remove from requirements                             |
-| Module split into `models.py` + `adva_api.py` | `from adva_api import ...` still works     |
-
-### What Works Without Changes
-
-- `from adva_api import VPort, Service, API` — re-exports from models
-- `api.query("command", argument="x")` — same signature
-- `model.get_config()` — same JSON output format
-- `GigabitEthernet1(...)` — alias for unified `GigabitEthernet`
-- `Config` — alias for `_Serialisable` base class
-- `Interface.type`, `Service.type` — original attribute names preserved
