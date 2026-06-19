@@ -87,10 +87,10 @@ url, method = get_urn_data("config-lock", "https://10.0.0.1", "/")
 
 ## Auto-Config Transaction Management
 
-All mutating API methods (`configure_interface`, `delete_interface`, `create_service`, `delete_service`, `create_vnf_profile`) are decorated with `@_auto_config`, which provides automatic transaction management:
+All mutating API methods (`configure_interface`, `delete_interface`, `create_service`, `modify_service`, `delete_service`, `add_service_port`, `remove_service_port`, `create_vnf_profile`) are decorated with `@_auto_config`, which provides automatic transaction management:
 
 - **Standalone call** — if config is not locked, the decorator automatically performs `lock → execute → commit` (or `lock → execute → abandon` on error)
-- **Within a transaction** — if config is already locked (by a prior `lock_config()` call), the decorator just executes the method without locking or committing
+- **Within a transaction** — if config is already locked, the decorator just executes the method without locking or committing
 
 This means every mutating method works both as a standalone operation and as part of a larger transaction:
 
@@ -100,15 +100,15 @@ api.configure_interface(vport1)
 api.create_service(svc1)
 api.delete_interface(vport2)
 
-# Manual transaction — multiple operations in one lock/commit
-api.lock_config()
-api.configure_interface([ge1, ge2])
-api.create_service(svc1)
-api.delete_interface(old_vport)
-api.config_commit()
+# Context manager — recommended way to group multiple operations
+with api.config_transaction():
+    api.configure_interface([ge1, ge2])
+    api.create_service(svc1)
+    api.add_service_port(svc1, [sp1, sp2])
+    api.delete_interface(old_vport)
 ```
 
-On error, the decorator calls `config_abandon()` and re-raises the exception.
+On error, `config_abandon()` is called automatically and the exception is re-raised.
 
 ---
 
@@ -220,6 +220,42 @@ api.delete_service(Service(name='svc-1'))
 api.delete_service(['svc-1', svc2_instance, 'svc-3'])
 ```
 
+#### `add_service_port(service: str | Service, port: ServicePort | list) → tuple[int, str]`
+
+Adds one or more service ports to an existing service. Reads the current service config, appends the new port(s), and calls `modify-service`. Decorated with `@_auto_config`.
+
+```python
+from models import Service, ServicePort
+
+sp = ServicePort(name='sp-3', interface='vp-3', mode='access', vlan=300)
+api.add_service_port('svc-1', sp)
+
+# Multiple ports at once
+api.add_service_port('svc-1', [sp1, sp2])
+
+# Accept a Service object as well
+api.add_service_port(svc_instance, sp)
+```
+
+Raises `ValueError` if the service is not found. Raises `TypeError` if any port is not a `ServicePort`.
+
+#### `remove_service_port(service: str | Service, port: ServicePort | str | list) → tuple[int, str]`
+
+Removes one or more service ports from an existing service by name. Reads the current service config, filters out the specified port(s), and calls `modify-service`. Decorated with `@_auto_config`.
+
+```python
+# By name
+api.remove_service_port('svc-1', 'sp-3')
+
+# By ServicePort object (matched by .name)
+api.remove_service_port('svc-1', sp3)
+
+# Multiple at once — mix of strings and ServicePort objects
+api.remove_service_port('svc-1', ['sp-1', sp2_instance, 'sp-3'])
+```
+
+Raises `ValueError` if the service is not found.
+
 ---
 
 ### VNF Management
@@ -276,7 +312,26 @@ result = api.deploy_image({"target-name": "my-vnf-image", ...})
 
 ### Configuration Management
 
-These low-level methods are available for manual transaction control, but most use cases are covered by `@_auto_config` on mutating methods.
+These methods give you control over the config transaction lifecycle. For most multi-step workflows, use `config_transaction()` instead of calling `lock_config` / `config_commit` manually.
+
+#### `config_transaction()`
+
+Context manager that wraps a block of mutating calls in a single lock/commit cycle. On success, commits automatically. On any exception, abandons the transaction and re-raises.
+
+```python
+from models import VPort, Service, ServicePort
+
+with api.config_transaction():
+    api.configure_interface([ge1, ge2])
+    api.create_service(svc1)
+    api.add_service_port(svc1, [sp1, sp2])
+    api.delete_interface(old_vport)
+# → one lock, all operations, one commit
+```
+
+If an error occurs mid-block, `config_abandon()` is called and the exception propagates normally.
+
+Read-only methods (e.g. `get_services_list`) can be called freely inside the block — they do not interact with the lock.
 
 #### `lock_config() → tuple[int, str]`
 
@@ -771,18 +826,40 @@ api.configure_interface([
 api.delete_service(["svc-1", "svc-2", "svc-3"])
 ```
 
-### Manual Transaction (mixed operations)
+### config_transaction (multiple operations, one commit)
 
-For combining different operation types in one transaction:
+Use `config_transaction()` to group different operation types in a single lock/commit. If any step raises, the transaction is abandoned automatically:
 
 ```python
-api.lock_config()
+from models import VPort, Service, ServicePort
 
-api.configure_interface([ge1, ge2])
-api.create_service(svc1)
-api.delete_interface(old_vport)
+sp1 = ServicePort(name='sp-1', interface='vp-1', mode='access', vlan=100)
+sp2 = ServicePort(name='sp-2', interface='vp-2', mode='trunk')
+svc = Service(name='svc-1', type='e-lan')
 
-api.config_commit()
+with api.config_transaction():
+    api.configure_interface([ge1, ge2])
+    api.create_service(svc)
+    api.add_service_port(svc, [sp1, sp2])
+    api.delete_interface(old_vport)
+```
+
+### Adding and Removing Service Ports
+
+```python
+from models import ServicePort
+
+# Add a new port to an existing service
+sp_new = ServicePort(name='sp-3', interface='vp-3', mode='tagged', allowed_vlans='10,20,30')
+api.add_service_port('svc-1', sp_new)
+
+# Remove a port by name
+api.remove_service_port('svc-1', 'sp-3')
+
+# Add and remove in one transaction
+with api.config_transaction():
+    api.add_service_port('svc-1', sp_new)
+    api.remove_service_port('svc-1', 'sp-old')
 ```
 
 ### Firewall Configuration

@@ -10,6 +10,7 @@ import time
 import json
 import os
 import stat
+from contextlib import contextmanager
 from functools import wraps
 
 import requests
@@ -441,6 +442,17 @@ class API:
     # ------------------------------------------------------------------
     #  Configuration management
     # ------------------------------------------------------------------
+
+    @contextmanager
+    def config_transaction(self):
+        """Context manager for multi-step config changes under a single lock/commit."""
+        self.lock_config()
+        try:
+            yield self
+            self.config_commit()
+        except Exception:
+            self.config_abandon()
+            raise
 
     def lock_config(self) -> tuple[int, str]:
         logger.info("Locking config...")
