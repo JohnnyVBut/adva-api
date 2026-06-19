@@ -21,7 +21,7 @@ from requests.auth import HTTPBasicAuth
 
 import urn_data as ud
 
-from models import get_short_list, Interface, Service, Vnf
+from models import get_short_list, Interface, Service, ServicePort, Vnf
 
 urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -278,6 +278,51 @@ class API:
             results.append(result)
 
         return results if len(results) > 1 else results[0]
+
+    @_auto_config
+    def add_service_port(self, service: str | Service, port: ServicePort | list) -> tuple[int, str]:
+        """Add one or more service ports to an existing service."""
+        service_name = service.name if isinstance(service, Service) else service
+        services = self.get_services_list(brief=False)
+        service_data = next((s for s in services if s["name"] == service_name), None)
+        if service_data is None:
+            raise ValueError(f"Service '{service_name}' not found")
+
+        if not isinstance(port, list):
+            port = [port]
+        for p in port:
+            if not isinstance(p, ServicePort):
+                raise TypeError(f"Expected ServicePort, got {type(p).__name__}")
+
+        service_data.setdefault("serviceports", []).extend(
+            p.get_config(jsn=False) for p in port
+        )
+
+        result = self.query("modify-service", argument=service_name, payload=json.dumps(service_data))
+        logger.info(f"add_service_port to {service_name}: {result[0]} {return_code(result[0])}")
+        return result
+
+    @_auto_config
+    def remove_service_port(self, service: str | Service, port: ServicePort | str | list) -> tuple[int, str]:
+        """Remove one or more service ports from an existing service by name."""
+        service_name = service.name if isinstance(service, Service) else service
+        services = self.get_services_list(brief=False)
+        service_data = next((s for s in services if s["name"] == service_name), None)
+        if service_data is None:
+            raise ValueError(f"Service '{service_name}' not found")
+
+        if not isinstance(port, list):
+            port = [port]
+        names_to_remove = {p.name if isinstance(p, ServicePort) else p for p in port}
+
+        service_data["serviceports"] = [
+            sp for sp in service_data.get("serviceports", [])
+            if sp["name"] not in names_to_remove
+        ]
+
+        result = self.query("modify-service", argument=service_name, payload=json.dumps(service_data))
+        logger.info(f"remove_service_port from {service_name}: {result[0]} {return_code(result[0])}")
+        return result
 
     # ------------------------------------------------------------------
     #  VNFs
